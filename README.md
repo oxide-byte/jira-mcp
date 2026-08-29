@@ -34,6 +34,24 @@ A Rust application that provides a **Model Context Protocol (MCP)** server to in
 - **Pre-configured** - `.claude/settings.local.json` pre-approves localhost API calls
 - **Seamless Context** - Mention ticket IDs and the skill fetches live data
 
+
+A sample: .claude/settings.local.json
+
+json
+```
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl * http://localhost:3030/health *)",
+      "Bash(curl * http://localhost:3030/jira/* *)",
+      "Bash(curl -s http://localhost:3030/health *)",
+      "Bash(curl -s http://localhost:3030/jira/* *)",
+      "WebFetch(domain:localhost)",
+    ]
+  }
+}
+```
+
 ## Quick Start
 
 ### Prerequisites

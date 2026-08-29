@@ -1,0 +1,12 @@
+# Cargo configuration
+
+[build]
+# Number of parallel jobs, defaults to # of CPUs
+# jobs = 8
+
+# Target triple for default compilation
+# target = "x86_64-unknown-linux-gnu"
+
+[term]
+# Use color when output is to a terminal
+color = 'auto'
