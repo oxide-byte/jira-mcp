@@ -1,4 +1,5 @@
 use crate::config::{AuthMethod, SharedConfig};
+use crate::logs::SharedLogCollector;
 use crate::modal::{
     draw_auth_method_selection_modal, draw_config_edit_modal, ConfigField, Modal, ModalState,
 };
@@ -78,11 +79,16 @@ impl AppState {
 ///
 /// * `call_log` - Shared call log to display in the UI
 /// * `config` - Shared Jira configuration
+/// * `log_collector` - Shared log collector for application logs
 ///
 /// # Errors
 ///
 /// Returns an error if terminal setup fails or an unrecoverable event occurs.
-pub async fn run_tui(call_log: Arc<Mutex<CallLog>>, config: SharedConfig) -> Result<()> {
+pub async fn run_tui(
+    call_log: Arc<Mutex<CallLog>>,
+    config: SharedConfig,
+    log_collector: SharedLogCollector,
+) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
@@ -92,7 +98,7 @@ pub async fn run_tui(call_log: Arc<Mutex<CallLog>>, config: SharedConfig) -> Res
     let terminal = Terminal::new(backend)?;
 
     // Run the app
-    let res = run_app(terminal, call_log, config).await;
+    let res = run_app(terminal, call_log, config, log_collector).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -111,6 +117,7 @@ async fn run_app(
     mut terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
     call_log: Arc<Mutex<CallLog>>,
     config: SharedConfig,
+    log_collector: SharedLogCollector,
 ) -> Result<()> {
     let mut app_state = AppState::new();
 
@@ -126,12 +133,15 @@ async fn run_app(
         let log = call_log.lock();
         let calls = log.get_calls();
         let cfg = config.lock();
+        let logs = log_collector.lock();
+        let log_entries = logs.get_entries();
 
         terminal.draw(|f| {
-            draw_ui(f, &calls, &app_state, &cfg);
+            draw_ui(f, &calls, &log_entries, &app_state, &cfg);
         })?;
         drop(cfg);
         drop(log);
+        drop(logs);
 
         // Handle events with a timeout so we can refresh the display
         if crossterm::event::poll(std::time::Duration::from_millis(500))? {
@@ -154,17 +164,19 @@ async fn run_app(
 fn draw_ui(
     f: &mut Frame,
     calls: &[crate::state::Call],
+    log_entries: &[crate::logs::LogEntry],
     app_state: &AppState,
     config: &crate::config::JiraConfig,
 ) {
     let size = f.area();
 
-    // Create main layout: header, content, footer
+    // Create main layout: header, call log, logs, footer
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4),
-            Constraint::Min(5),
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
             Constraint::Length(3),
         ])
         .split(size);
@@ -175,8 +187,11 @@ fn draw_ui(
     // Draw call log table
     draw_call_log(f, chunks[1], calls);
 
+    // Draw application logs panel
+    draw_logs_panel(f, chunks[2], log_entries);
+
     // Draw footer
-    draw_footer(f, chunks[2]);
+    draw_footer(f, chunks[3]);
 
     // Draw modal if visible
     if app_state.modal.is_visible() {
@@ -281,6 +296,57 @@ fn draw_call_log(f: &mut Frame, area: Rect, calls: &[crate::state::Call]) {
     .block(
         Block::default()
             .title(format!("MCP Calls ({})", calls.len()))
+            .borders(Borders::ALL),
+    );
+
+    f.render_widget(table, area);
+}
+
+/// Draws the logs panel showing application logs and errors.
+fn draw_logs_panel(f: &mut Frame, area: Rect, log_entries: &[crate::logs::LogEntry]) {
+    let rows: Vec<Row> = log_entries
+        .iter()
+        .map(|entry| {
+            let level_color = match entry.level.as_str() {
+                "ERROR" => Color::Red,
+                "WARN" => Color::Yellow,
+                "INFO" => Color::Cyan,
+                "DEBUG" => Color::Gray,
+                _ => Color::White,
+            };
+
+            Row::new(vec![
+                entry.timestamp.format("%H:%M:%S%.3f").to_string(),
+                Span::styled(
+                    entry.level.clone(),
+                    Style::default().fg(level_color),
+                )
+                .to_string(),
+                entry.message.clone(),
+            ])
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(12),
+            Constraint::Length(7),
+            Constraint::Min(40),
+        ],
+    )
+    .header(
+        Row::new(vec!["Timestamp", "Level", "Message"])
+            .style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .bottom_margin(1),
+    )
+    .block(
+        Block::default()
+            .title(format!("Logs ({})", log_entries.len()))
             .borders(Borders::ALL),
     );
 

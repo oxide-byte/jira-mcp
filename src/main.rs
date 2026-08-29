@@ -1,5 +1,6 @@
 mod config;
 mod jira;
+mod logs;
 mod modal;
 mod server;
 mod state;
@@ -12,11 +13,11 @@ use tokio::task;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .with_target(false)
-        .init();
+    // Create shared log collector
+    let log_collector = Arc::new(Mutex::new(logs::LogCollector::new()));
+
+    // Initialize logging to write to the collector instead of stdout
+    logs::init_tracing(log_collector.clone());
 
     // Load configuration from environment
     let jira_config = config::JiraConfig::from_env()?;
@@ -36,20 +37,22 @@ async fn main() -> Result<()> {
     // Spawn the web server in a background task
     let server_handle = task::spawn(async move {
         if let Err(e) = server::start_server(call_log_server, config_server, server_port).await {
-            eprintln!("Server error: {}", e);
+            // Log server errors through tracing instead of stderr
+            tracing::error!("Server error: {}", e);
         }
     });
 
     // Run the TUI in the main task
     // If TUI fails (e.g., in headless environment), keep the server running
-    match ui::run_tui(call_log, shared_config).await {
+    match ui::run_tui(call_log, shared_config, log_collector).await {
         Ok(_) => {
             // Normal TUI exit
             server_handle.abort();
         }
         Err(e) => {
-            eprintln!("TUI error: {}", e);
-            eprintln!("Running server in headless mode...");
+            // Log TUI errors through tracing instead of stderr
+            tracing::error!("TUI error: {}", e);
+            tracing::info!("Running server in headless mode...");
             // Keep the server running indefinitely if TUI fails
             let _ = server_handle.await;
         }
