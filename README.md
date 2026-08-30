@@ -372,3 +372,4 @@ Issues and PRs welcome. Please ensure:
 - [Claude AI Capabilities](https://claude.ai)
 - [Axum Web Framework](https://github.com/tokio-rs/axum)
 - [Ratatui TUI Library](https://ratatui.rs/)
+- [Cosmonic Labs Rust Skills](https://github.com/cosmonic-labs/skills/)
